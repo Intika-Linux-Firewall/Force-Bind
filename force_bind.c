@@ -762,7 +762,7 @@ static int alter_sa(const int sockfd, struct sockaddr *sa)
 	struct sockaddr_in6 *sa6;
 	unsigned short *pport = NULL;
 	void *p;
-	char *force_address;
+	char *force_address = NULL;
 	int force_port;
 	int err, ret = 0;
 
@@ -917,13 +917,13 @@ int bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
 		}
 
 		/* Test if we should deny the bind */
-		if (strcmp(force_address, "deny") == 0) {
+		if (force_address && (strcmp(force_address, "deny") == 0)) {
 			xlog(1, "\tDeny binding to %s\n", tmp);
 			errno = EACCES;
 			return -1;
 		}
 
-		if (strcmp(force_address, "fake") == 0) {
+		if (force_address && (strcmp(force_address, "fake") == 0)) {
 			xlog(1, "\tFake binding to %s\n", tmp);
 			return 0;
 		}
