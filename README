@@ -105,7 +105,7 @@ Examples:
 		export FORCE_NET_VERBOSE=1
 		export LD_PRELOAD=${LD_PRELOAD}:/usr/lib/force_bind.so
 		# 1. Make sure you have a 'prio' qdisc attached to eth0, for example:
-		tc qdisc add ev eth0 root handle 1: prio
+		tc qdisc add dev eth0 root handle 1: prio
 		# 2. Assign applications to classed (bands):
 		export FORCE_NET_PRIO=6 # interactive, band 0
 		your_voip_program_here

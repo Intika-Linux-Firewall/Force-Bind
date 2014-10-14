@@ -22,6 +22,9 @@ test_client: test_client.c
 test_client6: test_client6.c
 	$(CC) $(CFLAGS) $< -o $@
 
+test_poll: test_poll.c
+	$(CC) $(CFLAGS) $< -o $@
+
 .PHONY: clean
 clean:
 	@rm -f force_bind.so.* test_bind send_udp test_client test_client6 \

@@ -4,7 +4,7 @@ Version:	@VER@
 Release:	@REV@
 License:	GPLv3+
 Group:		Applications/Communications
-Source:		http://kernel.embedromix.ro/us/Conn/%{name}-%{version}.tar.gz
+Source:		http://kernel.embedromix.ro/us/%{name}/%{name}-%{version}.tar.gz
 URL:		http://kernel.embedromix.ro/us/
 BuildRoot:	%{_tmppath}/%{name}-%{version}-buildroot
 

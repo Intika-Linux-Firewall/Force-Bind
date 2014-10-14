@@ -32,6 +32,7 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <poll.h>
 
 #include "force_bind_config.h"
 
@@ -110,6 +111,7 @@ static ssize_t			(*old_sendto)(int sockfd, const void *buf, size_t len, int flag
 static ssize_t			(*old_sendmsg)(int sockfd, const struct msghdr *msg, int flags);
 static int			(*old_accept)(int sockfd, struct sockaddr *addr, socklen_t *addrlen);
 static int			(*old_connect)(int sockfd, const struct sockaddr *addr, socklen_t addrlen);
+static int			(*old_poll)(struct pollfd *fds, nfds_t nfds, int timeout);
 
 static char			*force_address_v4 = NULL;
 static char			*force_address_v6 = NULL;
@@ -130,6 +132,7 @@ static struct info		fdinfo;
 static unsigned int		verbose = 0;
 static char			*log_file = NULL;
 static FILE			*Log = NULL;
+static int			force_poll_timeout = -1000;
 
 
 /* Helper functions */
@@ -215,7 +218,7 @@ static void xlog(const unsigned int level, const char *format, ...)
 	va_end(ap);
 }
 
-static void dump(const int level, const char *title, const void *buf,
+void dump(const int level, const char *title, const void *buf,
 	const unsigned int len)
 {
 	unsigned int i;
@@ -357,8 +360,10 @@ static void init(void)
 	fdinfo.tail = NULL;
 
 	log_file = getenv("FORCE_NET_LOG");
-	if (log_file != NULL)
+	if (log_file != NULL) {
 		Log = fopen(log_file, "w");
+		setlinebuf(Log);
+	}
 
 	x = getenv("FORCE_NET_VERBOSE");
 	if (x != NULL)
@@ -521,6 +526,15 @@ static void init(void)
 			prio);
 	}
 
+	/* poll timeout */
+	x = getenv("FORCE_NET_POLL_TIMEOUT");
+	if (x != NULL) {
+		force_poll_timeout = strtoul(x, NULL, 0);
+		xlog(1, "Force poll timeout to %d.\n",
+			force_poll_timeout);
+	}
+
+	/******** Now, hijack system calls ********/
 
 	old_bind = dlsym(RTLD_NEXT, "bind");
 	if (old_bind == NULL) {
@@ -579,6 +593,12 @@ static void init(void)
 	old_connect = dlsym(RTLD_NEXT, "connect");
 	if (old_connect == NULL) {
 		xlog(0, "Cannot resolve 'connect'!\n");
+		exit(1);
+	}
+
+	old_poll = dlsym(RTLD_NEXT, "poll");
+	if (old_poll == NULL) {
+		xlog(0, "Cannot resolve 'poll'!\n");
 		exit(1);
 	}
 
@@ -1229,5 +1249,15 @@ int connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
 	alter_dest_sa(sockfd, &new_dest, addrlen);
 
 	return old_connect(sockfd, (struct sockaddr *) &new_dest, addrlen);
+}
+
+int poll(struct pollfd *fds, nfds_t nfds, int timeout)
+{
+	xlog(2, "poll(fds, %d, %d) old_poll=%p\n", nfds, timeout, old_poll);
+
+	if (force_poll_timeout != -1000)
+		timeout = force_poll_timeout;
+
+	return old_poll(fds, nfds, timeout);
 }
 

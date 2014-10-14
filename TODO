@@ -1,7 +1,11 @@
+[ ] Document force_poll_timeout
+[ ] Split binding on connect from the one used for listen.
 [ ] If we have more bind calls, we have a problem. Probably we have to use a table like this:
-	ipv4 0.0.0.0/80 127.0.0.2/8080
-	ipv6 ::/80 ::1/8080
-	unix /tmp/sock /tmp/sock1
+	#oper	family	type	address/port	address/port
+	bind	ipv4	dgram	0.0.0.0/80	127.0.0.2/8080
+	bind	ipv6	stream	::/80		::1/8080
+	bind	unix	stream	/tmp/sock	/tmp/sock1
+	alter	*	stream...
 [ ] Test UDP sendto and sendmsg!
 [ ] Probably we have to hijack also dup/dup2/etc.
 [ ] Bandwidth per total or per socket. Better, per ip/protocol
@@ -15,11 +19,13 @@
 [ ] Dump statistics (bytes, syscalls etc.) in a file specified by a env var.
 [ ] Need to study how to set only the class for IPv6. Also check Linux kernel
 	to see how prio is set for IPv6 class.
-[ ] Nice: Force a protocol on a connection! So, uer tries TCP but get UDP!
+[ ] Nice: Force a protocol on a connection! So, user tries TCP but get UDP!
 [ ] Controlling timeout (SO_RCVTIMEO, SO_SNDTIMEO)
 [ ] Enforce connect timeout
 [ ] Change data on the fly...
 [ ] Allow saving stream data in a file.
 [ ] sendmmsg/recvmmsg support
 [ ] There are stupid applications (skype) that run poll with timeout 0! Fix it!
+[ ] Remote network: transport all sockets operations over another socket to a
+	remote host.
 [ ] 
