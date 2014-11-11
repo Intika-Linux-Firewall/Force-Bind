@@ -10,3 +10,4 @@ test_client6
 *.out
 *.log
 force_bind_config.h
+test_poll

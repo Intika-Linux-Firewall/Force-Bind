@@ -1,3 +1,4 @@
+[ ] Clarify deny/fake for bind. It is only ipv4/ipv6?
 [ ] Document force_poll_timeout
 [ ] Split binding on connect from the one used for listen.
 [ ] If we have more bind calls, we have a problem. Probably we have to use a table like this:
@@ -19,10 +20,10 @@
 [ ] Dump statistics (bytes, syscalls etc.) in a file specified by a env var.
 [ ] Need to study how to set only the class for IPv6. Also check Linux kernel
 	to see how prio is set for IPv6 class.
-[ ] Nice: Force a protocol on a connection! So, user tries TCP but get UDP!
+[ ] Nice: Force a protocol on a connection! So, user tries TCP but gets UDP!
 [ ] Controlling timeout (SO_RCVTIMEO, SO_SNDTIMEO)
 [ ] Enforce connect timeout
-[ ] Change data on the fly...
+[ ] Change data on the fly!!!
 [ ] Allow saving stream data in a file.
 [ ] sendmmsg/recvmmsg support
 [ ] There are stupid applications (skype) that run poll with timeout 0! Fix it!

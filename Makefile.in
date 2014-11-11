@@ -29,7 +29,8 @@ test_poll: test_poll.c
 clean:
 	@rm -f force_bind.so.* test_bind send_udp test_client test_client6 \
 		*.a *.o *.so* $(PRJ)-*.rpm $(PRJ)-*-*-*.tgz $(PRJ)-*.tar.gz \
-		*.strace *.log *.out
+		*.strace *.log *.out \
+		test_poll
 
 install:	all
 	@mkdir -p $(I_USR_LIB)

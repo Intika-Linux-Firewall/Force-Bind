@@ -1222,9 +1222,16 @@ int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
 
 	xlog(2, "accept(sockfd=%d, ...)\n", sockfd);
 
-	new_sock = old_accept(sockfd, addr, addrlen);
-	if (new_sock == -1)
-		return -1;
+	while (1) {
+		new_sock = old_accept(sockfd, addr, addrlen);
+		if (new_sock == -1) {
+			if (errno == EINTR)
+				continue;
+			return -1;
+		}
+
+		break;
+	}
 
 	/* We must find out domain and type for accepting socket */
 	q = get(sockfd);
