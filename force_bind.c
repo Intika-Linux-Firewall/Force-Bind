@@ -110,6 +110,7 @@ static ssize_t			(*old_send)(int sockfd, const void *buf, size_t len, int flags)
 static ssize_t			(*old_sendto)(int sockfd, const void *buf, size_t len, int flags, const struct sockaddr *dest_addr, socklen_t addrlen);
 static ssize_t			(*old_sendmsg)(int sockfd, const struct msghdr *msg, int flags);
 static int			(*old_accept)(int sockfd, struct sockaddr *addr, socklen_t *addrlen);
+static int			(*old_accept4)(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags);
 static int			(*old_connect)(int sockfd, const struct sockaddr *addr, socklen_t addrlen);
 static int			(*old_poll)(struct pollfd *fds, nfds_t nfds, int timeout);
 
@@ -168,6 +169,7 @@ static char *sprotocol(const int protocol)
 
 	switch (protocol) {
 	case IPPROTO_TCP: return "tcp";
+	case IPPROTO_UDP: return "udp";
 	default: snprintf(tmp, sizeof(tmp), "%d", protocol); return tmp;
 	}
 }
@@ -175,7 +177,7 @@ static char *sprotocol(const int protocol)
 /*
  * Fills @out with domain/type/address/port string
  */
-static void saddr(char *out, const int out_len,
+static void saddr(char *out, const size_t out_len,
 	const struct sockaddr_storage *ss)
 {
 	struct sockaddr_in *s4;
@@ -218,7 +220,7 @@ static void xlog(const unsigned int level, const char *format, ...)
 	va_end(ap);
 }
 
-void dump(const int level, const char *title, const void *buf,
+static void dump(const unsigned int level, const char *title, const void *buf,
 	const unsigned int len)
 {
 	unsigned int i;
@@ -228,7 +230,7 @@ void dump(const int level, const char *title, const void *buf,
 	for (i = 0; i < len; i++)
 		snprintf(out + i * 3, 4, " %02x", buf2[i]);
 
-	xlog(level, "dump %s:%s\n", title, out);
+	xlog(level, "force_bind: dump %s:%s\n", title, out);
 }
 
 static struct node *get(const int fd)
@@ -249,13 +251,13 @@ static struct node *get(const int fd)
 /*
  * List all sockets
  */
-static void list(const int level)
+static void list(const unsigned int level)
 {
 	struct node *q;
 	struct private *p;
 	char dest[128];
 
-	xlog(level, "list...\n");
+	xlog(level, "force_bind: list...\n");
 
 	q = fdinfo.head;
 	while (q != NULL) {
@@ -278,7 +280,7 @@ static void add(const int fd, const struct private *p)
 {
 	struct node *q;
 
-	xlog(2, "add(fd=%d, ...)\n", fd);
+	xlog(2, "force_bind: add(fd=%d, ...)\n", fd);
 
 	/* do we have a copy? */
 	q = get(fd);
@@ -297,7 +299,8 @@ static void add(const int fd, const struct private *p)
 		if (q == NULL) {
 			q = (struct node *) malloc(sizeof(struct node));
 			if (q == NULL) {
-				xlog(0, "Cannot alloc memory; ignore fd!\n");
+				xlog(0, "force_bind: cannot alloc memory"
+					"; ignore fd!\n");
 				return;
 			}
 
@@ -321,14 +324,14 @@ static void add(const int fd, const struct private *p)
 		gettimeofday(&q->priv.last, NULL);
 	}
 
-	list(2);
+	list(10);
 }
 
 static void del(const int fd)
 {
 	struct node *p;
 
-	xlog(2, "del(fd=%d)\n", fd);
+	xlog(2, "force_bind: del(fd=%d)\n", fd);
 
 	p = fdinfo.head;
 	while (p != NULL) {
@@ -362,27 +365,30 @@ static void init(void)
 	log_file = getenv("FORCE_NET_LOG");
 	if (log_file != NULL) {
 		Log = fopen(log_file, "w");
-		setlinebuf(Log);
+		if (Log)
+			setlinebuf(Log);
+	} else {
+		Log = stderr;
 	}
 
 	x = getenv("FORCE_NET_VERBOSE");
 	if (x != NULL)
-		verbose = strtol(x, NULL, 10);
+		verbose = (unsigned int) strtoul(x, NULL, 10);
 
-	xlog(1, "Init started...\n");
-	xlog(0, "Version: %s\n", FORCE_BIND_VERSION);
+	xlog(1, "force_bind: init started...\n");
+	xlog(1, "force_bind: version: %s\n", FORCE_BIND_VERSION);
 
 	x = getenv("FORCE_BIND_ADDRESS_V4");
 	if (x != NULL) {
 		force_address_v4 = x;
-		xlog(1, "Force bind to IPv4 address \"%s\".\n",
+		xlog(1, "force_bind: conf: binding to IPv4 address \"%s\".\n",
 			force_address_v4);
 	}
 
 	x = getenv("FORCE_BIND_ADDRESS_V6");
 	if (x != NULL) {
 		force_address_v6 = x;
-		xlog(1, "Force bind to IPv6 address \"%s\".\n",
+		xlog(1, "force_bind: conf: binding to IPv6 address \"%s\".\n",
 			force_address_v6);
 	}
 
@@ -391,31 +397,31 @@ static void init(void)
 	if (x != NULL) {
 		force_address_v4 = x;
 		force_address_v6 = x;
-		xlog(1, "Force bind to address \"%s\"."
+		xlog(1, "force_bind: conf: binding to address \"%s\"."
 			" Obsolete, use FORCE_BIND_ADDRESS_V4/6.\n",
 			force_address_v4);
 	}
 
 	x = getenv("FORCE_BIND_PORT_V4");
 	if (x != NULL) {
-		force_port_v4 = strtol(x, NULL, 10);
-		xlog(1, "Force bind to port %d.\n",
+		force_port_v4 = (int) strtol(x, NULL, 10);
+		xlog(1, "force_bind: conf: binding to port %d.\n",
 			force_port_v4);
 	}
 
 	x = getenv("FORCE_BIND_PORT_V6");
 	if (x != NULL) {
-		force_port_v6 = strtol(x, NULL, 10);
-		xlog(1, "Force bind to port %d.\n",
+		force_port_v6 = (int) strtol(x, NULL, 10);
+		xlog(1, "force_bind: conf: binding to port %d.\n",
 			force_port_v6);
 	}
 
 	/* obsolete mode */
 	x = getenv("FORCE_BIND_PORT");
 	if (x != NULL) {
-		force_port_v4 = strtol(x, NULL, 10);
-		force_port_v6 = strtol(x, NULL, 10);
-		xlog(1, "Force bind to port %d."
+		force_port_v4 = (int) strtol(x, NULL, 10);
+		force_port_v6 = (int) strtol(x, NULL, 10);
+		xlog(1, "force_bind: conf: binding to port %d."
 			" Obsolete, use FORCE_BIND_PORT_V4/6.\n",
 			force_port_v4);
 	}
@@ -424,8 +430,8 @@ static void init(void)
 	x = getenv("FORCE_NET_TOS");
 	if (x != NULL) {
 		force_tos = 1;
-		tos = strtoul(x, NULL, 0);
-		xlog(1, "Force TOS to %hhu.\n",
+		tos = (unsigned int) strtoul(x, NULL, 0);
+		xlog(1, "force_bind: conf: forcing TOS to %hhu.\n",
 			tos);
 	}
 
@@ -433,8 +439,8 @@ static void init(void)
 	x = getenv("FORCE_NET_TTL");
 	if (x != NULL) {
 		force_ttl = 1;
-		ttl = strtoul(x, NULL, 0);
-		xlog(1, "Force TTL to %hhu.\n",
+		ttl = (unsigned int) strtoul(x, NULL, 0);
+		xlog(1, "force_bind: conf: forcing TTL to %hhu.\n",
 			ttl);
 	}
 
@@ -442,8 +448,8 @@ static void init(void)
 	x = getenv("FORCE_NET_KA");
 	if (x != NULL) {
 		force_keepalive = 1;
-		keepalive = strtoul(x, NULL, 0);
-		xlog(1, "Force KA to %u.\n",
+		keepalive = (unsigned int) strtoul(x, NULL, 0);
+		xlog(1, "force_bind: conf: forcing KA to %u.\n",
 			keepalive);
 	}
 
@@ -451,8 +457,8 @@ static void init(void)
 	x = getenv("FORCE_NET_MSS");
 	if (x != NULL) {
 		force_mss = 1;
-		mss = strtoul(x, NULL, 0);
-		xlog(1, "Force MSS to %u.\n",
+		mss = (unsigned int) strtoul(x, NULL, 0);
+		xlog(1, "force_bind: conf: forcing MSS to %u.\n",
 			mss);
 	}
 
@@ -460,8 +466,8 @@ static void init(void)
 	x = getenv("FORCE_NET_REUSEADDR");
 	if (x != NULL) {
 		force_reuseaddr = 1;
-		reuseaddr = strtoul(x, NULL, 0);
-		xlog(1, "Force REUSEADDR to %u.\n",
+		reuseaddr = (unsigned int) strtoul(x, NULL, 0);
+		xlog(1, "force_bind: conf: forcing REUSEADDR to %u.\n",
 			reuseaddr);
 	}
 
@@ -469,18 +475,18 @@ static void init(void)
 	x = getenv("FORCE_NET_NODELAY");
 	if (x != NULL) {
 		force_nodelay = 1;
-		nodelay = strtoul(x, NULL, 0);
-		xlog(1, "Force NODELAY to %u.\n",
+		nodelay = (unsigned int) strtoul(x, NULL, 0);
+		xlog(1, "force_bind: conf: forcing NODELAY to %u.\n",
 			nodelay);
 	}
 
 	/* bandwidth */
 	x = getenv("FORCE_NET_BW");
 	if (x != NULL) {
-		bw_global.limit = strtoul(x, NULL, 0);
+		bw_global.limit = (unsigned int) strtoul(x, NULL, 0);
 		gettimeofday(&bw_global.last, NULL);
 		bw_global.rest = 0;
-		xlog(1, "Force bandwidth to %llub/s.\n",
+		xlog(1, "force_bind: conf: forcing bandwidth to %llub/s.\n",
 			bw_global.limit);
 	} else {
 		bw_global.limit = 0;
@@ -490,11 +496,11 @@ static void init(void)
 	x = getenv("FORCE_NET_BW_PER_SOCKET");
 	if (x != NULL) {
 		if (bw_global.limit > 0) {
-			xlog(1, "Cannot set limit per socket"
+			xlog(1, "force_bind: conf: cannot set limit per socket"
 				" when global one is set.\n");
 		} else {
-			bw_limit_per_socket = strtoul(x, NULL, 0);
-			xlog(1, "Force bandwidth per socket to %llub/s.\n",
+			bw_limit_per_socket = (unsigned int) strtoul(x, NULL, 0);
+			xlog(1, "force_bind: conf: forcing bandwidth per socket to %llub/s.\n",
 				bw_limit_per_socket);
 		}
 	}
@@ -503,8 +509,8 @@ static void init(void)
 	x = getenv("FORCE_NET_FLOWINFO");
 	if (x != NULL) {
 		force_flowinfo = 1;
-		flowinfo = strtoul(x, NULL, 0) & IPV6_FLOWINFO_MASK;
-		xlog(1, "Force FLOWINFO to 0x%x.\n",
+		flowinfo = (unsigned int) strtoul(x, NULL, 0) & IPV6_FLOWINFO_MASK;
+		xlog(1, "force_bind: conf: forcing FLOWINFO to 0x%x.\n",
 			flowinfo);
 	}
 
@@ -512,8 +518,8 @@ static void init(void)
 	x = getenv("FORCE_NET_FWMARK");
 	if (x != NULL) {
 		force_fwmark = 1;
-		fwmark = strtoul(x, NULL, 0);
-		xlog(1, "Force fwmark to 0x%x.\n",
+		fwmark = (unsigned int) strtoul(x, NULL, 0);
+		xlog(1, "force_bind: conf: forcing fwmark to 0x%x.\n",
 			fwmark);
 	}
 
@@ -521,16 +527,16 @@ static void init(void)
 	x = getenv("FORCE_NET_PRIO");
 	if (x != NULL) {
 		force_prio = 1;
-		prio = strtoul(x, NULL, 0);
-		xlog(1, "Force prio to %u.\n",
+		prio = (unsigned int) strtoul(x, NULL, 0);
+		xlog(1, "force_bind: conf: forcing prio to %u.\n",
 			prio);
 	}
 
 	/* poll timeout */
 	x = getenv("FORCE_NET_POLL_TIMEOUT");
 	if (x != NULL) {
-		force_poll_timeout = strtoul(x, NULL, 0);
-		xlog(1, "Force poll timeout to %d.\n",
+		force_poll_timeout = (int) strtoul(x, NULL, 0);
+		xlog(1, "force_bind: conf: forcing poll timeout to %d.\n",
 			force_poll_timeout);
 	}
 
@@ -538,71 +544,77 @@ static void init(void)
 
 	old_bind = dlsym(RTLD_NEXT, "bind");
 	if (old_bind == NULL) {
-		xlog(0, "Cannot resolve 'bind'!\n");
+		xlog(0, "force_bind: cannot resolve 'bind'!\n");
 		exit(1);
 	}
 
 	old_setsockopt = dlsym(RTLD_NEXT, "setsockopt");
 	if (old_setsockopt == NULL) {
-		xlog(0, "Cannot resolve 'setsockopt'!\n");
+		xlog(0, "force_bind: cannot resolve 'setsockopt'!\n");
 		exit(1);
 	}
 
 	old_socket = dlsym(RTLD_NEXT, "socket");
 	if (old_socket == NULL) {
-		xlog(0, "Cannot resolve 'socket'!\n");
+		xlog(0, "force_bind: cannot resolve 'socket'!\n");
 		exit(1);
 	}
 
 	old_close = dlsym(RTLD_NEXT, "close");
 	if (old_close == NULL) {
-		xlog(0, "Cannot resolve 'close'!\n");
+		xlog(0, "force_bind: cannot resolve 'close'!\n");
 		exit(1);
 	}
 
 	old_write = dlsym(RTLD_NEXT, "write");
 	if (old_write == NULL) {
-		xlog(0, "Cannot resolve 'write'!\n");
+		xlog(0, "force_bind: cannot resolve 'write'!\n");
 		exit(1);
 	}
 
 	old_send = dlsym(RTLD_NEXT, "send");
 	if (old_send == NULL) {
-		xlog(0, "Cannot resolve 'send'!\n");
+		xlog(0, "force_bind: cannot resolve 'send'!\n");
 		exit(1);
 	}
 
 	old_sendto = dlsym(RTLD_NEXT, "sendto");
 	if (old_sendto == NULL) {
-		xlog(0, "Cannot resolve 'sendto'!\n");
+		xlog(0, "force_bind: cannot resolve 'sendto'!\n");
 		exit(1);
 	}
 
 	old_sendmsg = dlsym(RTLD_NEXT, "sendmsg");
 	if (old_sendmsg == NULL) {
-		xlog(0, "Cannot resolve 'sendmsg'!\n");
+		xlog(0, "force_bind: cannot resolve 'sendmsg'!\n");
 		exit(1);
 	}
 
 	old_accept = dlsym(RTLD_NEXT, "accept");
 	if (old_accept == NULL) {
-		xlog(0, "Cannot resolve 'accept'!\n");
+		xlog(0, "force_bind: cannot resolve 'accept'!\n");
+		exit(1);
+	}
+
+	old_accept4 = dlsym(RTLD_NEXT, "accept4");
+	if (old_accept4 == NULL) {
+		xlog(0, "force_bind: cannot resolve 'accept4'!\n");
 		exit(1);
 	}
 
 	old_connect = dlsym(RTLD_NEXT, "connect");
 	if (old_connect == NULL) {
-		xlog(0, "Cannot resolve 'connect'!\n");
+		xlog(0, "force_bind: cannot resolve 'connect'!\n");
 		exit(1);
 	}
 
 	old_poll = dlsym(RTLD_NEXT, "poll");
 	if (old_poll == NULL) {
-		xlog(0, "Cannot resolve 'poll'!\n");
+		xlog(0, "force_bind: cannot resolve 'poll'!\n");
 		exit(1);
 	}
 
-	xlog(1, "Init ended.\n");
+	xlog(1, "force_bind: init ended.\n");
 }
 
 static int set_ka(int sockfd)
@@ -614,7 +626,7 @@ static int set_ka(int sockfd)
 
 	flag = (keepalive > 0) ? 1 : 0;
 	ret = old_setsockopt(sockfd, SOL_SOCKET, SO_KEEPALIVE, &flag, sizeof(flag));
-	xlog(1, "changing SO_KEEPALIVE to %d (ret=%d(%s)) [%d].\n",
+	xlog(1, "force_bind: changing SO_KEEPALIVE to %d (ret=%d(%s)) [%d].\n",
 		flag, ret, strerror(errno), sockfd);
 
 	return ret;
@@ -628,7 +640,7 @@ static int set_ka_idle(int sockfd)
 		return 0;
 
 	ret = old_setsockopt(sockfd, IPPROTO_TCP, TCP_KEEPIDLE, &keepalive, sizeof(keepalive));
-	xlog(1, "changing TCP_KEEPIDLE to %us (ret=%d(%s)) [%d].\n",
+	xlog(1, "force_bind: changing TCP_KEEPIDLE to %us (ret=%d(%s)) [%d].\n",
 		keepalive, ret, strerror(errno), sockfd);
 
 	return ret;
@@ -642,7 +654,7 @@ static int set_mss(int sockfd)
 		return 0;
 
 	ret = old_setsockopt(sockfd, IPPROTO_TCP, TCP_MAXSEG, &mss, sizeof(mss));
-	xlog(1, "changing MSS to %u (ret=%d(%s)) [%d].\n",
+	xlog(1, "force_bind: changing MSS to %u (ret=%d(%s)) [%d].\n",
 		mss, ret, strerror(errno), sockfd);
 
 	return ret;
@@ -656,7 +668,7 @@ static int set_tos(int sockfd)
 		return 0;
 
 	ret = old_setsockopt(sockfd, IPPROTO_IP, IP_TOS, &tos, sizeof(tos));
-	xlog(1, "changing TOS to %hhu (ret=%d(%s)) [%d].\n",
+	xlog(1, "force_bind: changing TOS to %hhu (ret=%d(%s)) [%d].\n",
 		tos, ret, strerror(errno), sockfd);
 
 	return ret;
@@ -670,7 +682,7 @@ static int set_ttl(int sockfd)
 		return 0;
 
 	ret = old_setsockopt(sockfd, IPPROTO_IP, IP_TTL, &ttl, sizeof(ttl));
-	xlog(1, "changing TTL to %hhu (ret=%d(%s)) [%d].\n",
+	xlog(1, "force_bind: changing TTL to %hhu (ret=%d(%s)) [%d].\n",
 		ttl, ret, strerror(errno), sockfd);
 
 	return ret;
@@ -684,7 +696,7 @@ static int set_reuseaddr(int sockfd)
 		return 0;
 
 	ret = old_setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &reuseaddr, sizeof(reuseaddr));
-	xlog(1, "changing reuseaddr to %u (ret=%d(%s)) [%d].\n",
+	xlog(1, "force_bind: changing reuseaddr to %u (ret=%d(%s)) [%d].\n",
 		reuseaddr, ret, strerror(errno), sockfd);
 
 	return ret;
@@ -698,7 +710,7 @@ static int set_nodelay(int sockfd)
 		return 0;
 
 	ret = old_setsockopt(sockfd, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
-	xlog(1, "changing nodelay to %u (ret=%d(%s)) [%d].\n",
+	xlog(1, "force_bind: changing nodelay to %u (ret=%d(%s)) [%d].\n",
 		nodelay, ret, strerror(errno), sockfd);
 
 	return ret;
@@ -735,12 +747,12 @@ static void set_flowinfo(int sockfd, struct private *p)
 	mgr.flr_share = IPV6_FL_S_ANY;
 	mgr.flr_flags = IPV6_FL_F_CREATE;
 	ret = old_setsockopt(sockfd, SOL_IPV6, IPV6_FLOWLABEL_MGR, &mgr, sizeof(mgr));
-	xlog(1, "flow mgr (ret=%d(%s)) [%d].\n",
+	xlog(1, "force_bind: flow mgr (ret=%d(%s)) [%d].\n",
 		ret, strerror(errno), sockfd);
 
 	yes = 1;
 	ret = old_setsockopt(sockfd, SOL_IPV6, IPV6_FLOWINFO_SEND, &yes, sizeof(yes));
-	xlog(1, "changing flowinfo to 'yes' (ret=%d(%s)) [%d].\n",
+	xlog(1, "force_bind: changing flowinfo to 'yes' (ret=%d(%s)) [%d].\n",
 		ret, strerror(errno), sockfd);
 }
 
@@ -752,7 +764,7 @@ static int set_fwmark(int sockfd)
 		return 0;
 
 	ret = old_setsockopt(sockfd, SOL_SOCKET, SO_MARK, &fwmark, sizeof(fwmark));
-	xlog(1, "changing fwmark to 0x%x (ret=%d(%s)) [%d].\n",
+	xlog(1, "force_bind: changing fwmark to 0x%x (ret=%d(%s)) [%d].\n",
 		fwmark, ret, strerror(errno), sockfd);
 
 	return ret;
@@ -766,7 +778,7 @@ static int set_prio(int sockfd)
 		return 0;
 
 	ret = old_setsockopt(sockfd, SOL_SOCKET, SO_PRIORITY, &prio, sizeof(prio));
-	xlog(1, "changing fwmark to 0x%x (ret=%d(%s)) [%d].\n",
+	xlog(1, "force_bind: changing fwmark to 0x%x (ret=%d(%s)) [%d].\n",
 		prio, ret, strerror(errno), sockfd);
 
 	return ret;
@@ -786,7 +798,7 @@ static int alter_sa(const int sockfd, struct sockaddr *sa)
 	int force_port;
 	int err, ret = 0;
 
-	xlog(2, "alter_sa(sockfd=%d, ...)\n", sockfd);
+	xlog(2, "force_bind: alter_sa(sockfd=%d, ...)\n", sockfd);
 
 	switch (sa->sa_family) {
 	case AF_INET:
@@ -806,7 +818,7 @@ static int alter_sa(const int sockfd, struct sockaddr *sa)
 		break;
 
 	default:
-		xlog(1, "unsupported family=%u [%d]!\n",
+		xlog(1, "force_bind: unsupported family=%u [%d]!\n",
 			sa->sa_family, sockfd);
 		return 0;
 	}
@@ -814,7 +826,7 @@ static int alter_sa(const int sockfd, struct sockaddr *sa)
 	if (force_address != NULL) {
 		err = inet_pton(sa->sa_family, force_address, p);
 		if (err != 1) {
-			xlog(1, "cannot convert [%s] (%d) (%s) [%d]!\n",
+			xlog(1, "force_bind: cannot convert [%s] (%d) (%s) [%d]!\n",
 				force_address, err, strerror(errno), sockfd);
 			return 0;
 		}
@@ -841,7 +853,7 @@ static void alter_dest_sa(int sockfd, struct sockaddr_storage *ss, socklen_t len
 	init();
 
 	saddr(addr, sizeof(addr), ss);
-	xlog(2, "alter_dest_sa(sockfd=%d, addr=%s)\n",
+	xlog(2, "force_bind: alter_dest_sa(sockfd=%d, addr=%s)\n",
 		sockfd, addr);
 
 	/* We do not touch non network sockets */
@@ -853,7 +865,7 @@ static void alter_dest_sa(int sockfd, struct sockaddr_storage *ss, socklen_t len
 	case AF_INET6:
 		sa6 = (struct sockaddr_in6 *) ss;
 		if (force_flowinfo == 1) {
-			xlog(1, "changing flowinfo from 0x%x to 0x%x [%d]!\n",
+			xlog(1, "force_bind: changing flowinfo from 0x%x to 0x%x [%d]!\n",
 				ntohl(sa6->sin6_flowinfo), flowinfo, sockfd);
 			sa6->sin6_flowinfo = htonl(flowinfo);
 		}
@@ -879,7 +891,7 @@ static void change_local_binding(int sockfd)
 
 	init();
 
-	xlog(2, "change_local_binding(sockfd=%d)\n", sockfd);
+	xlog(2, "force_bind: change_local_binding(sockfd=%d)\n", sockfd);
 
 	/* We do not touch non network sockets */
 	q = get(sockfd);
@@ -893,7 +905,7 @@ static void change_local_binding(int sockfd)
 	tmp_len = sizeof(struct sockaddr_storage);
 	err = getsockname(sockfd, (struct sockaddr *) &tmp, &tmp_len);
 	if (err != 0) {
-		xlog(1, "Cannot get socket name err=%d (%s) [%d]!\n",
+		xlog(1, "force_bind: cannot get socket name err=%d (%s) [%d]!\n",
 			err, strerror(errno), sockfd);
 		return;
 	}
@@ -904,7 +916,7 @@ static void change_local_binding(int sockfd)
 	err = old_bind(sockfd, (struct sockaddr *) &tmp, tmp_len);
 	q->priv.flags |= FB_FLAGS_BIND_CALLED;
 	if (err != 0)
-		xlog(1, "Cannot bind err=%d (%s) [%d]!\n",
+		xlog(1, "force_bind: cannot bind err=%d (%s) [%d]!\n",
 			err, strerror(errno), sockfd);
 }
 
@@ -918,7 +930,7 @@ int bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
 	init();
 
 	saddr(tmp, sizeof(tmp), (struct sockaddr_storage *) addr);
-	xlog(1, "bind(sockfd=%d, %s)\n", sockfd, tmp);
+	xlog(1, "force_bind: bind(sockfd=%d, %s)\n", sockfd, tmp);
 
 	memcpy(&new, addr, addrlen);
 
@@ -938,13 +950,13 @@ int bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
 
 		/* Test if we should deny the bind */
 		if (force_address && (strcmp(force_address, "deny") == 0)) {
-			xlog(1, "\tDeny binding to %s\n", tmp);
+			xlog(1, "force_bind: deny binding to %s\n", tmp);
 			errno = EACCES;
 			return -1;
 		}
 
 		if (force_address && (strcmp(force_address, "fake") == 0)) {
-			xlog(1, "\tFake binding to %s\n", tmp);
+			xlog(1, "force_bind: fake binding to %s\n", tmp);
 			return 0;
 		}
 
@@ -993,13 +1005,13 @@ int setsockopt(int sockfd, int level, int optname, const void *optval,
 /*
  * Helper called when a socket is created: socket, accept
  */
-void socket_create_callback(const int sockfd, int domain, int type)
+static void socket_create_callback(const int sockfd, int domain, int type)
 {
 	struct private p;
 
 	init();
 
-	xlog(2, "socket_create_callback(%d, %s, %s)\n",
+	xlog(2, "force_bind: socket_create_callback(%d, %s, %s)\n",
 		sockfd, sdomain(domain), stype(type));
 
 	set_tos(sockfd);
@@ -1033,7 +1045,7 @@ int socket(int domain, int type, int protocol)
 
 	init();
 
-	xlog(1, "socket(domain=%s, type=%s, protocol=%s)\n",
+	xlog(1, "force_bind: socket(domain=%s, type=%s, protocol=%s)\n",
 		sdomain(domain), stype(type), sprotocol(protocol));
 
 	sockfd = old_socket(domain, type, protocol);
@@ -1052,13 +1064,13 @@ static void bw(const int sockfd, const ssize_t bytes)
 {
 	struct timeval now;
 	struct timespec ts, rest;
-	long long allowed;
+	unsigned long long allowed;
 	long long diff_ms, sleep_ms;
 	int err;
 	struct node *q;
 	struct private *p;
 
-	xlog(2, "bw(sockfd=%d, bytes=%zd)\n", sockfd, bytes);
+	xlog(2, "force_bind: bw(sockfd=%d, bytes=%zd)\n", sockfd, bytes);
 
 	if (bytes <= 0)
 		return;
@@ -1093,7 +1105,7 @@ static void bw(const int sockfd, const ssize_t bytes)
 		diff_ms, p->rest, bytes, allowed);
 	*/
 
-	if (bytes <= allowed) {
+	if (bytes <= (ssize_t) allowed) {
 		p->rest = allowed - bytes;
 		/*printf("\tInside limit, rest=%llu.\n", p->rest);*/
 		return;
@@ -1119,7 +1131,7 @@ static void bw(const int sockfd, const ssize_t bytes)
 				continue;
 			}
 
-			xlog(1, "nanosleep returned error"
+			xlog(1, "force_bind: nanosleep returned error"
 				" (%d) (%s).\n",
 				err, strerror(errno));
 		}
@@ -1132,7 +1144,7 @@ int close(int fd)
 {
 	init();
 
-	xlog(1, "close(fd=%d)\n", fd);
+	xlog(1, "force_bind: close(fd=%d)\n", fd);
 
 	del(fd);
 
@@ -1142,6 +1154,10 @@ int close(int fd)
 ssize_t write(int fd, const void *buf, size_t len)
 {
 	ssize_t n;
+
+	init();
+
+	xlog(1, "force_bind: write(fd=%d, ...)\n", fd);
 
 	n = old_write(fd, buf, len);
 	bw(fd, n);
@@ -1153,7 +1169,9 @@ ssize_t send(int sockfd, const void *buf, size_t len, int flags)
 {
 	ssize_t n;
 
-	xlog(1, "send(sockfd=%d, buf, len=%zu, flags=0x%x)\n",
+	init();
+
+	xlog(1, "force_bind: send(sockfd=%d, buf, len=%zu, flags=0x%x)\n",
 		sockfd, len, flags);
 
 	n = old_send(sockfd, buf, len, flags);
@@ -1168,7 +1186,9 @@ ssize_t sendto(int sockfd, const void *buf, size_t len, int flags,
 	ssize_t n;
 	struct sockaddr_storage new_dest;
 
-	xlog(1, "sendto(sockfd, %d, buf, len=%zu, flags=0x%x, ...)\n",
+	init();
+
+	xlog(1, "force_bind: sendto(sockfd, %d, buf, len=%zu, flags=0x%x, ...)\n",
 		sockfd, len, flags);
 
 	change_local_binding(sockfd);
@@ -1192,7 +1212,9 @@ ssize_t sendmsg(int sockfd, const struct msghdr *msg, int flags)
 	struct sockaddr_storage new_dest;
 	*/
 
-	xlog(1, "sendmsg(sockfd=%d, ..., flags=0x%x)\n",
+	init();
+
+	xlog(1, "force_bind: sendmsg(sockfd=%d, ..., flags=0x%x)\n",
 		sockfd, flags);
 
 	change_local_binding(sockfd);
@@ -1209,8 +1231,7 @@ ssize_t sendmsg(int sockfd, const struct msghdr *msg, int flags)
 }
 
 /*
- * We have to hijack accept because this program may be a daemon.
- * TODO: accept4 should also be hijacked.
+ * We have to hijack accept because the program may be a daemon.
  */
 int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
 {
@@ -1220,18 +1241,39 @@ int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
 
 	init();
 
-	xlog(2, "accept(sockfd=%d, ...)\n", sockfd);
+	xlog(2, "force_bind: accept(sockfd=%d, ...)\n", sockfd);
 
-	while (1) {
-		new_sock = old_accept(sockfd, addr, addrlen);
-		if (new_sock == -1) {
-			if (errno == EINTR)
-				continue;
-			return -1;
-		}
+	new_sock = old_accept(sockfd, addr, addrlen);
+	if (new_sock == -1)
+		return -1;
 
-		break;
+	/* We must find out domain and type for accepting socket */
+	q = get(sockfd);
+	if (q != NULL) {
+		p = &q->priv;
+
+		socket_create_callback(new_sock, p->domain, p->type);
 	}
+
+	return new_sock;
+}
+
+/*
+ * We have to hijack accept4 because the program may be a daemon.
+ */
+int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
+{
+	int new_sock;
+	struct node *q;
+	struct private *p;
+
+	init();
+
+	xlog(2, "force_bind: accept4(sockfd=%d, ...)\n", sockfd);
+
+	new_sock = old_accept4(sockfd, addr, addrlen, flags);
+	if (new_sock == -1)
+		return -1;
 
 	/* We must find out domain and type for accepting socket */
 	q = get(sockfd);
@@ -1248,7 +1290,9 @@ int connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
 {
 	struct sockaddr_storage new_dest;
 
-	xlog(2, "connect(sockfd=%d, ...)\n", sockfd);
+	init();
+
+	xlog(2, "force_bind: connect(sockfd=%d, ...)\n", sockfd);
 
 	change_local_binding(sockfd);
 
@@ -1260,7 +1304,9 @@ int connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
 
 int poll(struct pollfd *fds, nfds_t nfds, int timeout)
 {
-	xlog(2, "poll(fds, %d, %d) old_poll=%p\n", nfds, timeout, old_poll);
+	init();
+
+	xlog(2, "force_bind: poll(fds, %d, %d) old_poll=%p\n", nfds, timeout, old_poll);
 
 	if (force_poll_timeout != -1000)
 		timeout = force_poll_timeout;

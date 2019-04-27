@@ -26,10 +26,23 @@ function duilder_docs()
 		mkdir -p "${EXPORT_PATH}"
 	fi
 
+	if [ "${BUILD_SDEB}" = "1" ]; then
+		if [ -d "debian" ]; then
+			>debian/docs
+		fi
+	fi
+
 	echo "[*] Copying docs to [${EXPORT_PATH}]..."
-	for f in README License LICENSE Changelog Changelog-last TODO FAQ INSTALL; do
+	for f in README License LICENSE Changelog Changelog-last TODO FAQ INSTALL AUTHORS samples; do
 		if [ -r "${f}" ]; then
-			cp -vp "${f}" "${EXPORT_PATH}/"
+			cp -avp "${f}" "${EXPORT_PATH}/"
+			if [ "${BUILD_SDEB}" = "1" ]; then
+				# No need to install the license file
+				if [ "${f}" = "LICENSE" ]; then
+					continue
+				fi
+				echo "${f}" >> debian/docs
+			fi
 		fi
 	done
 	echo
@@ -58,6 +71,13 @@ function duilder_git()
 	if [ ! -d .git ]; then
 		echo "[*] Warning: I cannot find .git directory!"
 		exit 0
+	fi
+
+	echo "[*] Testing if a tag is present for HEAD..."
+	D=`git describe | sed -e 's/^.*-g[0-9a-fA-F]*$//'`
+	if [ "${D}" = "" ]; then
+		echo "No annotated tag preset for HEAD! Please add one!"
+		exit 1
 	fi
 
 	if [ "${EXPORT_GIT}" = "1" ]; then
@@ -96,12 +116,14 @@ function duilder_git()
 
 		# get the list of tags
 		number_of_tags=0
+		git show-ref --tags -d | grep refs/tags/v > duilder.tmp
 		while read sha1 full_tag; do
 			tag=`echo ${full_tag} | sed -e 's#refs/tags/##' | cut -d'^' -f1`
 			tags[${number_of_tags}]=${tag}
 			tags_commit[${number_of_tags}]=${sha1}
 			number_of_tags=$[${number_of_tags}+1]
-		done < <(git show-ref --tags -d | grep refs/tags/v)
+		done < duilder.tmp
+		rm -f duilder.tmp
 
 		# get the list of commits, test if is a tag and do the diff
 		prev=""
@@ -159,13 +181,13 @@ function duilder_srpm()
 
 	P="${PRJ}-${VER}"
 
+	if [ "${BUILD_SRPM}" != "1" ]; then
+		exit 0
+	fi
+
 	if [ ! -d "${EXPORT_PATH}" ]; then
 		echo "WARN: ${EXPORT_PATH} does not exists. Creating it..."
 		mkdir -p "${EXPORT_PATH}"
-	fi
-
-	if [ "${BUILD_SRPM}" != "1" ]; then
-		exit 0
 	fi
 
 	echo "[*] Building SRPM..."
@@ -185,7 +207,6 @@ function duilder_srpm()
 	if [ ! -z "${SRPM_DEST}" ]; then
 		echo "[*] Copying [${PKG}] to [${SRPM_DEST}]..."
 		cp -vp "${PKG}" "${SRPM_DEST}/"
-		echo
 	fi
 
 	echo "[*] Copying to export dir [${EXPORT_PATH}]..."
@@ -196,6 +217,44 @@ function duilder_srpm()
 	if [ -x "${SRPM_POST_RUN}" ]; then
 		echo "[*] Running post SRPM build script [${SRPM_POST_RUN}]..."
 		${SRPM_POST_RUN} "${PKG}"
+	fi
+}
+
+function duilder_sdeb()
+{
+	PRJ="${1}"
+	VER="${2}"
+	EXPORT_PATH="${3}"
+	BUILD_SDEB="${4}"
+	SDEB_DEST="${5}"
+	SDEB_POST_RUN="${6}"
+
+	P="${PRJ}-${VER}"
+
+	if [ "${BUILD_SDEB}" != "1" ]; then
+		exit 0
+	fi
+
+	if [ ! -d "${EXPORT_PATH}" ]; then
+		echo "WARN: ${EXPORT_PATH} does not exists. Creating it..."
+		mkdir -p "${EXPORT_PATH}"
+	fi
+
+	echo "[*] Copying SDEB..."
+	PKG="${PRJ}_${VER}.orig.tar.gz"
+
+	if [ -n "${SDEB_DEST}" ]; then
+		cp -vp "${P}.tar.gz" "${SDEB_DEST}/${PKG}"
+	fi
+
+	echo "[*] Copying to export dir [${DEB_EXPORT_PATH}]..."
+	mkdir -p "${EXPORT_PATH}"
+	cp -vp "${P}.tar.gz" "${EXPORT_PATH}/${PKG}"
+	echo
+
+	if [ -x "${SDEB_POST_RUN}" ]; then
+		echo "[*] Running post SDEB build script [${SDEB_POST_RUN}]..."
+		${SDEB_POST_RUN} "${SDEB}/${PKG}"
 	fi
 }
 
@@ -215,8 +274,9 @@ function duilder_tar()
 
 	echo "[*] Generating tarball [${P}.tar.gz]..."
 	ADD_EXCLUDE=""
-	if [ ! -z "${EXCLUDE}" ]; then
+	if [ -r "${EXCLUDE}" ]; then
 		ADD_EXCLUDE="--exclude-from ${P}/${EXCLUDE}"
+		echo "[*] ADD_EXCLUDE=${ADD_EXCLUDE}"
 	fi
 
 	(cd .. \
@@ -274,7 +334,9 @@ if [ -z "${REV}" ]; then
 fi
 
 # export variables - just in case a script cares
-export PRJ VER REV EXPORT_PATH EXPORT_GIT GIT_PUSH GIT_DEST SRPM_DEST LICENSE
+export PRJ VER REV SHORT_DESCRIPTION EXPORT_PATH EXPORT_GIT GIT_PUSH GIT_DEST
+export SRPM_DEST SDEB_DEST LICENSE MAINTAINER_NAME MAINTAINER_EMAIL
+export HOME_PAGE BUILD_SRPM BUILD_SDEB
 
 
 # Multiplexer
@@ -302,6 +364,12 @@ if [ "${1}" = "srpm" ]; then
 	exit $?
 fi
 
+if [ "${1}" = "sdeb" ]; then
+	shift
+	duilder_sdeb "$@"
+	exit $?
+fi
+
 if [ "${1}" = "final" ]; then
 	shift
 	duilder_final "$@"
@@ -314,51 +382,75 @@ echo "[*] Duilder builder script"
 echo "[*] Copyright Catalin(ux) M. BOIE - catab at embedromix dot ro"
 echo "[*] PRJ=${PRJ}, VER=${VER}, REV=${REV}"
 echo "[*] System: `uname -a`"
+echo "[*] Parameters: ${@}"
 
 ETC="/etc"
 BIN="/bin"
+USR="/usr"
 USR_BIN="/usr/bin"
 USR_SBIN="/usr/sbin"
 USR_INCLUDE="/usr/include"
-USR_LIB="/usr/lib"
+if [ "`uname -m`" = "i686" ]; then
+	USR_LIB="/usr/lib"
+else
+	USR_LIB="/usr/lib64"
+fi
 USR_SHARE="/usr/share"
-USR_SHARE_DOC="/usr/share/doc/${PRJ}-${VER}"
+USR_SHARE_DOC="/usr/share/doc/${PRJ}"
 SBIN="/usr/sbin"
 VAR="/var"
+VAR_LIB="/var/lib"
+MAN="/usr/share/man"
+PREFIX="/usr"
 
 while [ "${1}" != "" ]; do
-	VAR="`echo ${1} | cut -d'=' -f1`"
-	VAL="`echo ${1} | cut -d'=' -f2`"
-	case ${VAR} in
+	xVAR="`echo ${1} | cut -d'=' -f1`"
+	xVAL="`echo ${1} | cut -d'=' -f2 | sed -e "s|\\${prefix}|${PREFIX}|"`"
+	shift
+	case ${xVAR} in
 		--sysconfdir)
-			ETC="${VAL}"
+			ETC="${xVAL}"
 			;;
 		--bindir)
-			USR_BIN="${VAL}"
+			USR_BIN="${xVAL}"
 			;;
 		--sbindir)
-			USR_SBIN="${VAL}"
+			USR_SBIN="${xVAL}"
 			;;
 		--includedir)
-			USR_INCLUDE="${VAL}"
+			USR_INCLUDE="${xVAL}"
 			;;
 		--libdir)
-			USR_LIB="${VAL}"
+			USR_LIB="${xVAL}"
 			;;
 		--localstatedir)
-			VAR="${VAL}"
+			VAR="${xVAL}"
+			;;
+		--sharedstatedir)
+			VAR_LIB="${xVAL}"
 			;;
 		--datadir)
-			USR_SHARE="${VAL}"
+			USR_SHARE="${xVAL}"
+			;;
+		--mandir)
+			MAN="${xVAL}"
+			;;
+		--prefix)
+			PREFIX="${xVAL}"
+			USR="${xVAL}"
 			;;
 	esac
-	shift
 done
 
 # Last fixes
 VAR_LOG="${VAR}/log"
 VAR_RUN="${VAR}/run"
+DUILDER_SYSTEMD="${USR}/lib/systemd"
 
+for i in ETC BIN USR USR_BIN USR_SBIN USR_INCLUDE USR_LIB USR_SHARE USR_SHARE_DOC SBIN VAR VAR_LIB MAN VAR_LOG VAR_RUN DUILDER_SYSTEMD; do
+	eval value=\$$i
+	echo "[*] Var ${i}=${value}"
+done
 
 # Truncate future sed file
 > tmp.sed
@@ -449,16 +541,38 @@ else
 	echo "s#@NCURSES_FOUND@#1#g" >> tmp.sed
 fi
 
+if [ -n "${CC_SWITCHES}" ]; then
+	_CC_SWITCHES=""
+	echo "[*] Search for valid compiler flags..."
+	add=""
+	for s in ${CC_SWITCHES}; do
+		echo -n "	[*] Testing switch [${s}]..."
+		set +e
+		echo "int main(void) { return 0; }" | gcc ${s} -x c -pipe - -o /dev/null 2>/dev/null
+		E=${?}
+		set -e
+		if [ "${E}" != "0" ]; then
+			echo "not supported"
+		else
+			echo "supported"
+			_CC_SWITCHES="${_CC_SWITCHES}${add}${s}"
+			add=" "
+		fi
+	done
+fi
+
 # generic stuff
 echo "s#@PRJ@#${PRJ}#g" >> tmp.sed
 echo "s#@VER@#${VER}#g" >> tmp.sed
 echo "s#@REV@#${REV}#g" >> tmp.sed
 echo "s#@ETC@#${ETC}#g" >> tmp.sed
 echo "s#@BIN@#${BIN}#g" >> tmp.sed
+echo "s#@USR@#${USR}#g" >> tmp.sed
 echo "s#@USR_BIN@#${USR_BIN}#g" >> tmp.sed
 echo "s#@SBIN@#${SBIN}#g" >> tmp.sed
 echo "s#@USR_SBIN@#${USR_SBIN}#g" >> tmp.sed
 echo "s#@VAR@#${VAR}#g" >> tmp.sed
+echo "s#@VAR_LIB@#${VAR_LIB}#g" >> tmp.sed
 echo "s#@VAR_LOG@#${VAR_LOG}#g" >> tmp.sed
 echo "s#@VAR_RUN@#${VAR_RUN}#g" >> tmp.sed
 echo "s#@USR_INCLUDE@#${USR_INCLUDE}#g" >> tmp.sed
@@ -466,8 +580,16 @@ echo "s#@USR_INC@#${USR_INCLUDE}#g" >> tmp.sed
 echo "s#@USR_LIB@#${USR_LIB}#g" >> tmp.sed
 echo "s#@USR_SHARE@#${USR_SHARE}#g" >> tmp.sed
 echo "s#@USR_SHARE_DOC@#${USR_SHARE_DOC}#g" >> tmp.sed
+echo "s#@MAN@#${MAN}#g" >> tmp.sed
+echo "s#@DUILDER_SYSTEMD@#${DUILDER_SYSTEMD}#g" >> tmp.sed
 # Export stuff
 echo "s#@EXPORT_PATH@#${EXPORT_PATH}#g" >> tmp.sed
+# cc_switches
+echo "s#@CC_SWITCHES@#${_CC_SWITCHES}#g" >> tmp.sed
+echo "s#@MAINTAINER_NAME@#${MAINTAINER_NAME}#g" >> tmp.sed
+echo "s#@MAINTAINER_EMAIL@#${MAINTAINER_EMAIL}#g" >> tmp.sed
+echo "s#@SHORT_DESCRIPTION@#${SHORT_DESCRIPTION}#g" >> tmp.sed
+echo "s#@HOME_PAGE@#${HOME_PAGE}#g" >> tmp.sed
 
 
 
@@ -483,6 +605,7 @@ if [ -r Makefile.in ]; then
 	echo "export I_ETC := \$(DESTDIR)${ETC}" >> Makefile
 	echo "export I_BIN := \$(DESTDIR)${BIN}" >> Makefile
 	echo "export I_SBIN := \$(DESTDIR)${SBIN}" >> Makefile
+	echo "export I_USR := \$(DESTDIR)${USR}" >> Makefile
 	echo "export I_USR_BIN := \$(DESTDIR)${USR_BIN}" >> Makefile
 	echo "export I_USR_SBIN := \$(DESTDIR)${USR_SBIN}" >> Makefile
 	echo "export I_USR_INCLUDE := \$(DESTDIR)${USR_INCLUDE}" >> Makefile
@@ -492,8 +615,11 @@ if [ -r Makefile.in ]; then
 	echo "export I_USR_LIB := \$(DESTDIR)${USR_LIB}" >> Makefile
 	echo "export I_LIB := \$(DESTDIR)${USR_LIB}" >> Makefile
 	echo "export I_VAR := \$(DESTDIR)${VAR}" >> Makefile
+	echo "export I_VAR_LIB := \$(DESTDIR)${VAR_LIB}" >> Makefile
 	echo "export I_VAR_LOG := \$(DESTDIR)${VAR_LOG}" >> Makefile
 	echo "export I_VAR_RUN := \$(DESTDIR)${VAR_RUN}" >> Makefile
+	echo "export I_MAN := \$(DESTDIR)${MAN}" >> Makefile
+	echo "export I_DUILDER_SYSTEMD := \$(DESTDIR)${DUILDER_SYSTEMD}" >> Makefile
 	echo >> Makefile
 	echo "# DB stuff" >> Makefile
 	echo "export DB_SUPPORT := ${DB_SUPPORT}" >> Makefile
@@ -523,6 +649,7 @@ if [ -r Makefile.in ]; then
 	echo "	@./duilder git \"\$(PRJ)\" \"${GIT_DEST}\" \"${EXPORT_GIT}\" \"${GIT_CHANGELOG}\"" \"${GIT_PUSH}\" >> Makefile
 	echo "	@./duilder tar \"\$(PRJ)\" \"\$(VER)\" \"${EXPORT_PATH}\" \"${EXCLUDE}\"" >> Makefile
 	echo "	@./duilder srpm \"\$(PRJ)\" \"\$(VER)\" \"${EXPORT_PATH}\" \"${BUILD_SRPM}\" \"${SRPM_DEST}\" \"${SRPM_POST_RUN}\"" >> Makefile
+	echo "	@./duilder sdeb \"\$(PRJ)\" \"\$(VER)\" \"${EXPORT_PATH}\" \"${BUILD_SDEB}\" \"${SDEB_DEST}\" \"${SDEB_POST_RUN}\"" >> Makefile
 	echo "	@./duilder docs \"\$(PRJ)\" \"\$(VER)\" \"${EXPORT_PATH}\"" >> Makefile
 	echo "	@./duilder final \"\$(PRJ)\" \"\$(VER)\" \"${RELEASE_SCRIPT}\"" >> Makefile
 	echo "	@rm -f \"\$(PRJ)-\$(VER).tar.gz\"" >> Makefile
@@ -538,6 +665,22 @@ if [ ! -z "${CONFIG_H}" ]; then
 	echo "[*] Generating ${CONFIG_H} file..."
 	sed -f tmp.sed ${CONFIG_H}.in > ${CONFIG_H}
 fi
+
+if [ "${BUILD_SDEB}" = "1" ]; then
+	AUTOGENERATE="${AUTOGENERATE} debian/control.in debian/changelog.in"
+	AUTOGENERATE="${AUTOGENERATE} debian/copyright.in debian/rules.in"
+fi
+
+echo "[*] Autogenerate files from .in..."
+for f in ${AUTOGENERATE}; do
+	if [ -r "${f}" ]; then
+		dst="${f%.in}"
+		echo "	[*] Autogenerate ${dst} from ${f}..."
+		sed -f tmp.sed "${f}" > "${dst}"
+		# We need to have the same rights (maybe is executable...)
+		chmod --reference="${f}" "${dst}"
+	fi
+done
 
 rm -f tmp.sed
 

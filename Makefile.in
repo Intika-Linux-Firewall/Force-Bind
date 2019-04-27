@@ -1,16 +1,28 @@
 export CC := gcc
 export INCS +=
 export LIBS +=
-export CFLAGS += -ggdb3 -Wall -Wextra -Wno-long-long -pipe
-export CFLAGSSO = $(CFLAGS) -ldl -lc -shared -rdynamic -fpic
+export CFLAGS += -O2 -ggdb -Wall -Wextra -pipe
+export CFLAGS += -Wcast-align -Wformat=2 -Wformat-security -fno-common
+export CFLAGS += -Wmissing-prototypes -Wmissing-declarations -Wstrict-prototypes
+export CFLAGS += -Wstrict-overflow -Wtrampolines -flto
+export CFLAGS += -fstack-protector-all
+export CFLAGS += -D _FORTIFY_SOURCES=2
+export CFLAGS += -fstack-reuse=all -fbounds-check
+export CFLAGS += -Wl,-z,noexecstack -Wl,-z,now -Wl,-z,relro -Wl,-O1
+
+export CFLAGSSO = $(CFLAGS) -ldl -lc -shared -rdynamic
+
 
 .PHONY: all
 all:	force_bind.so
 
 force_bind.so:	force_bind.c force_bind_config.h
-	$(CC) $(CFLAGSSO) -Wl,-soname,force_bind.so -o $@ force_bind.c
+	$(CC) $(CFLAGSSO) -fPIC -Wl,-soname,force_bind.so -o $@ force_bind.c
 
 test_bind:	test_bind.c
+	$(CC) $(CFLAGS) $< -o $@
+
+test_bind6:	test_bind6.c
 	$(CC) $(CFLAGS) $< -o $@
 
 send_udp: send_udp.c

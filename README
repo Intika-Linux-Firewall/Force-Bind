@@ -1,10 +1,11 @@
 Name:		force_bind
 
-Author:		Catali(ux) M. BOIE - catab at embedromix dot ro
+Author:		Catalin(ux) M. BOIE - catab at embedromix dot ro
 
 Start date:	2010-10-26
 
 Description:	Force binding on a specific IP and/or port.
+		Plus forcing setsockopt calls on the socket.
 		Works with both IPv4 and IPv6.
 		It is useful if you have a binary application without sources
 		and without the possibility to configure address or port to
@@ -19,6 +20,7 @@ Examples:
 		0. Output debug stuff in a log file (for debugging):
 		export FORCE_NET_VERBOSE=999
 		export FORCE_NET_LOG="xxx.log"
+		export LD_PRELOAD=${LD_PRELOAD}:/usr/lib/force_bind.so
 		your_program_here
 
 		1. Force bind to 127.0.0.1, port 33, verbose operations:
@@ -92,7 +94,7 @@ Examples:
 		::1.56981 > ::1.krb524: Flags [S], cksum 0x0030 (incorrect -> 0x91cf),
 		seq 1154252590, win 32752, options [mss 16376,sackOK,TS val 28395104 ecr 0,nop,wscale 4], length 0
 
-		13. Force FWMARK on a connection (only root is allowed):
+		13. Force FWMARK on a connection (only root can do it):
 		export FORCE_NET_VERBOSE=1
 		export FORCE_NET_FWMARK=0x1234
 		export LD_PRELOAD=${LD_PRELOAD}:/usr/lib/force_bind.so

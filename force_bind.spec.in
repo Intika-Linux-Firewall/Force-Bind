@@ -7,7 +7,7 @@ Group:		Applications/Communications
 Source:		http://kernel.embedromix.ro/us/%{name}/%{name}-%{version}.tar.gz
 URL:		http://kernel.embedromix.ro/us/
 BuildRoot:	%{_tmppath}/%{name}-%{version}-buildroot
-
+BuildRequires:	gcc, make
 
 %description
 It uses LD_PRELOAD to manipulate socket calls. Environment variables
@@ -38,6 +38,8 @@ rm -rf ${RPM_BUILD_ROOT}
 %doc README LICENSE Changelog TODO
 
 %changelog
+* Tue Feb 5 2019 Catalin(ux) M. BOIE <catab at embedromix dot ro> 0.13-1
+Minor fixes.
 * Wed Jul 18 2012 Catalin(ux) M. BOIE <catab at embedromix dot ro> - 0.11-1
 Added support for deny and fake.
 * Mon Aug 22 2011 Catalin(ux) M. BOIE <catab at embedromix dot ro> - 0.8-1

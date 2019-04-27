@@ -1,3 +1,4 @@
+[ ] accept/accept4 seems to not be intercepted!
 [ ] Clarify deny/fake for bind. It is only ipv4/ipv6?
 [ ] Document force_poll_timeout
 [ ] Split binding on connect from the one used for listen.
